@@ -54,7 +54,7 @@ impl Epub {
             // UnknownEntityReference for HTML entities
             let xml = self.get_text(&format!("{}{}", self.rootdir, path)).unwrap();
             let opt = ParsingOptions { allow_dtd: true };
-            let doc = Document::parse_with_options(&xml, opt).unwrap();
+            let Ok(doc) = Document::parse_with_options(&xml, opt) else { continue; };
             let body = doc.root_element().last_element_child().unwrap();
             let state = Attributes::default();
             let mut c = Chapter {
