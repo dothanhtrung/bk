@@ -5,6 +5,7 @@ use std::{
     fs::File,
     io::{self, Read},
 };
+use zip::result::{ZipError, ZipResult};
 
 pub struct Chapter {
     pub title: String,
@@ -42,20 +43,16 @@ impl Epub {
         }
         Ok(epub)
     }
-    fn get_text(&mut self, name: &str) -> String {
+    fn get_text(&mut self, name: &str) -> ZipResult<String> {
         let mut text = String::new();
-        self.container
-            .by_name(name)
-            .unwrap()
-            .read_to_string(&mut text)
-            .unwrap();
-        text
+        self.container.by_name(name)?.read_to_string(&mut text)?;
+        Ok(text)
     }
     fn get_chapters(&mut self, spine: Vec<(String, String)>) {
         for (title, path) in spine {
             // https://github.com/RazrFalcon/roxmltree/issues/12
             // UnknownEntityReference for HTML entities
-            let xml = self.get_text(&format!("{}{}", self.rootdir, path));
+            let xml = self.get_text(&format!("{}{}", self.rootdir, path)).unwrap();
             let opt = ParsingOptions { allow_dtd: true };
             let doc = Document::parse_with_options(&xml, opt).unwrap();
             let body = doc.root_element().last_element_child().unwrap();
@@ -89,7 +86,11 @@ impl Epub {
         }
     }
     fn get_spine(&mut self) -> Vec<(String, String)> {
-        let xml = self.get_text("META-INF/container.xml");
+        let xml = match self.get_text("META-INF/container.xml") {
+            Ok(text) => text,
+            Err(ZipError::FileNotFound) => self.get_text(r#"META-INF\container.xml"#).unwrap(),
+            Err(e) => panic!("{}", e),
+        };
         let doc = Document::parse(&xml).unwrap();
         let path = doc
             .descendants()
@@ -97,7 +98,7 @@ impl Epub {
             .unwrap()
             .attribute("full-path")
             .unwrap();
-        let xml = self.get_text(path);
+        let xml = self.get_text(path).unwrap();
         let doc = Document::parse(&xml).unwrap();
 
         // zip expects unix path even on windows
@@ -134,13 +135,13 @@ impl Epub {
                 .unwrap()
                 .attribute("href")
                 .unwrap();
-            let xml = self.get_text(&format!("{}{}", self.rootdir, path));
+            let xml = self.get_text(&format!("{}{}", self.rootdir, path)).unwrap();
             let doc = Document::parse(&xml).unwrap();
             epub3(doc, &mut nav);
         } else {
             let id = spine_node.attribute("toc").unwrap_or("ncx");
             let path = manifest.get(id).unwrap();
-            let xml = self.get_text(&format!("{}{}", self.rootdir, path));
+            let xml = self.get_text(&format!("{}{}", self.rootdir, path)).unwrap();
             let doc = Document::parse(&xml).unwrap();
             epub2(doc, &mut nav);
         }
